@@ -1,0 +1,32 @@
+-- Procedure: DEV_DBM.INGESTION_METADATA.CHECK_TASKS_EXIST
+-- Looks for TargetRefresh_<TableName> task in <DB>.RAW and provisions if missing
+
+CREATE OR REPLACE PROCEDURE DEV_DBM.INGESTION_METADATA.CHECK_TASKS_EXIST(
+  DATABASE_NAME VARCHAR,
+  SCHEMA_NAME   VARCHAR,
+  TABLENAME     VARCHAR
+)
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS '
+DECLARE task_exists BOOLEAN; results VARCHAR; full_schema TEXT; task_name TEXT; 
+BEGIN
+  full_schema := :DATABASE_NAME||''.RAW'';  -- tasks live in RAW schema
+  task_name := ''TARGETREFRESH_''||:TABLENAME;
+
+  -- Ensure schemas exist
+  CALL DEV_DBM.INGESTION_METADATA.CREATE_SCHEMAS_IF_NOT_EXISTS(:DATABASE_NAME);
+
+  -- Show tasks and check
+  EXECUTE IMMEDIATE ''SHOW TASKS IN SCHEMA ''||full_schema;
+  SELECT COUNT(*) > 0 INTO :task_exists
+  FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+  WHERE UPPER("name") = UPPER(:task_name);
+
+  IF (NVL(:task_exists, FALSE) = FALSE) THEN
+    CALL DEV_DBM.INGESTION_METADATA.CREATE_NEW_TABLES(:DATABASE_NAME, :SCHEMA_NAME, :TABLENAME, ''NEW'') INTO :results;
+    RETURN :results;
+  END IF;
+  RETURN ''No Change Found'';
+END';
